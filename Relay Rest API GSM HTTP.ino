@@ -1,84 +1,124 @@
 #include <SoftwareSerial.h>
+SoftwareSerial SIM800L(D1,D2);
 #include <ESP8266WiFi.h>
-SoftwareSerial mySerial(D6,D7);  // (Rx,Tx  > Tx,Rx) 
 #include <ArduinoJson.h>
-
-////Delay Relay HTTP
-//unsigned long lastTime = 0;
-//unsigned long timerDelay = 5000;
-
-char incomingByte; 
-String inputString = "";
-uint8_t relay1 = D5;
-uint8_t relay2 = D4;
-//#define relay2 D4
-
-#include <ArduinoJson.h>
-#include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
-#include <WiFiClient.h>
 
 //const char* ssid = "DSMNEW";
 //const char* password = "bctm0306";
 
-const char* ssid = "pong";
-const char* password = "saya2133";
+//const char* ssid = "pong";
+//const char* password = "saya2133";
+
+const char* ssid = "Dwi Dayak 2";
+const char* password = "linalevi";
 
 //Your Domain name with URL path or IP address with path
 String serverName = "http://47.254.248.173/iot/service_lamp.php";
 
-void setup_wifi() {
-  WiFi.begin(ssid, password);
-  Serial.println("Connecting");
-  while(WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+int _timeout;
+String _buffer;
+String textMessage;
+
+String incomingByte; 
+String inputString;
+
+//Relay 2 Channel WiFi dan SMS
+uint8_t relay1 = D0;
+uint8_t relay2 = D3;
+
+
+void setup() {
+  // Set relay as OUTPUT
+  pinMode(relay1, OUTPUT);
+  pinMode(relay2, OUTPUT);  
+  digitalWrite(relay1, LOW); // Initial state of the relay 
+  digitalWrite(relay2, LOW); // Initial state of the relay 
+  delay(1000); //delay for 7 seconds to make sure the modules get the signal
+  Serial.begin(115200);
+//  WiFi.begin(ssid, password);
+  setup_wifi();
+  _buffer.reserve(50);
+  Serial.println("Sistem Started...");
+  SIM800L.begin(115200);
+  delay(100);
+  Serial.println("SIM800L Ready");  
+  RecieveMessage();
+}
+
+void loop() {
+  
+//  if (Serial.available() > 0)   
+//    switch (Serial.read())
+//    {
+//      case 1:        
+//      Relaysms();
+//      break;
+//    }
+
+  //  Relaysms();
+  while(Serial.read()){
+    Relaysms();
+    break;
   }
-  Serial.println("");
-  Serial.print("Connected to WiFi network with IP Address: ");
-  Serial.println(WiFi.localIP());
-  Serial.println("Timer set to 5 seconds");
+  if (SIM800L.available() > 0)
+    Serial.write(SIM800L.read());
+  HttpSend();
 }
 
-void SetupSim(){
-   while(!mySerial.available()){
-        mySerial.println("AT");
-        delay(1000); 
-        Serial.println("Connecting...");
-        }
-      Serial.println("Connected!");  
-      mySerial.println("AT+CMGF=1");  //Set SMS to Text Mode 
-      delay(5000);  
-      mySerial.println("AT+CNMI=1,2,0,0,0");  //Procedure to handle newly arrived messages(command name in text: new message indications to TE) 
-      delay(5000);
-      mySerial.println("AT+CMGL=\"REC UNREAD\""); // Read Unread Messages
-}
-
-void setup() 
+void RecieveMessage()
 {
-      pinMode(relay1, OUTPUT);
-      pinMode(relay2, OUTPUT);
-//      digitalWrite(relay1, LOW); // Initial state of the relay
-      Serial.begin(9600);
-      mySerial.begin(4800); 
-      setup_wifi();
-      SetupSim();
+  Serial.println ("SIM800L Read an SMS");
+  delay(500);
+  SIM800L.println("AT+CMGF=1\r"); 
+  // Set module to send SMS data to serial out upon receipt 
+  SIM800L.println("AT+CNMI=2,2,0,0,0\r");
+  Serial.write ("Unread Message done");      
 }
 
-void loop()
-{  
-  SM800LSMS();
-  SendHTTPGET();
+void Relaysms(){
+  if(SIM800L.available()){
+      delay(100);
+
+      // Serial Buffer
+      while(SIM800L.available()){
+        incomingByte = SIM800L.read();
+        inputString += incomingByte; 
+        }         
+//        delay(10);      
+        Serial.println(inputString);
+        inputString.toUpperCase(); // Uppercase the Received Message
+        
+        //turn RELAY1 ON or OFF        
+        if (inputString.indexOf("ON") > -1){
+          digitalWrite(relay1, HIGH);
+          }
+        if (inputString.indexOf("OFF") > -1){
+          digitalWrite(relay1, LOW);
+        }  
+        //turn RELAY2 ON or OFF
+        if (inputString.indexOf("on/") > -1){
+          digitalWrite(relay2, HIGH);
+          }
+        if (inputString.indexOf("off/") > -1){
+          digitalWrite(relay2, LOW);
+        }
+        //Delete Messages & Save Memory
+        if (inputString.indexOf("OK") == -1){
+        SIM800L.println("AT+CMGDA=\"DEL ALL\"");
+        delay(10);
+        }
+        inputString = "";
+   }
 }
 
-void SendHTTPGET(){
+void HttpSend(){
   //Send an HTTP POST request every 10 minutes
 //  if ((millis() - lastTime) > timerDelay) {
     //Check WiFi connection status
     if(WiFi.status()== WL_CONNECTED){
       WiFiClient client;
       HTTPClient http;
-      
       String serverPath = serverName ;
       // Your Domain name with URL path or IP address with path
       http.begin(client, serverPath.c_str());
@@ -87,35 +127,31 @@ void SendHTTPGET(){
       int httpResponseCode = http.GET();
       
       if (httpResponseCode>0) {
-        char json[500];
+        char json[200];
         String payload = http.getString();
-        payload.toCharArray(json, 500);
-        StaticJsonDocument<384> doc;
-        DeserializationError error = deserializeJson(doc, json);
-        const char* token1=doc[1]["status_lampu"];
+        payload.toCharArray(json, 200);
+        StaticJsonDocument<2048> doc;
+        DeserializationError error = deserializeJson(doc, json);   
+         
+        const char* token=doc[0]["status_lampu"];
+        const char* token1=doc[1]["status_lampu"]; 
+
+        String kondisilamp = String(token);
         String kondisilamp1 = String(token1);
         
-        const char* token=doc[0]["status_lampu"];
-        
-        String kondisilamp = String(token);
-        
-        if (kondisilamp=="yes"){
-        digitalWrite(relay1,HIGH);
-        Serial.println("nyala");
-        }
-        else if (kondisilamp=="no"){
+        if (kondisilamp=="off"){
         digitalWrite(relay1,LOW);
-        Serial.println("mati");
         }
-        else if (kondisilamp1=="yes1"){
-        digitalWrite(relay2,HIGH);
-        Serial.println("nyala");
+        else if (kondisilamp=="on"){
+        digitalWrite(relay1,HIGH);
         }
-        else if (kondisilamp1=="no1"){
+        if (kondisilamp1=="off"){
         digitalWrite(relay2,LOW);
-        Serial.println("mati");
         }
-//        delay(100);
+        else if (kondisilamp1=="on"){
+        digitalWrite(relay2,HIGH);
+        }
+        delay(100);
       }
       else {
         Serial.print("Error code: ");
@@ -131,39 +167,15 @@ void SendHTTPGET(){
 //  }
 }
 
-void SM800LSMS(){
-    if(mySerial.available()){
-      delay(100);
-
-      // Serial Buffer
-      while(Serial.available()){
-        incomingByte = mySerial.read();
-        inputString += incomingByte; 
-        }
-
-        delay(10);      
-        mySerial.println(inputString);
-        inputString.toUpperCase(); // Uppercase the Received Message
-
-        //turn RELAY ON or OFF
-        if (inputString.indexOf("ON_1") > -1){
-          digitalWrite(relay1, HIGH);
-        }
-        else if (inputString.indexOf("OFF_1") > -1){
-          digitalWrite(relay1, LOW);
-        }      
-        else if (inputString.indexOf("ON_2") > -1){
-          digitalWrite(relay2, HIGH);
-        }  
-        else if (inputString.indexOf("OFF_2") > -1){
-          digitalWrite(relay2, LOW);
-        }else{
-        }
-        delay(100);
-        //Delete Messages & Save Memory
-        if (inputString.indexOf("OK") == -1){
-        mySerial.println("AT+CMGDA=\"DEL ALL\"");
-        delay(5000);}
-        inputString = "";
-  } 
+void setup_wifi() {
+  WiFi.begin(ssid, password);
+  Serial.println("Connecting");
+  while(WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.print("Connected to WiFi network with IP Address: ");
+  Serial.println(WiFi.localIP());
+  Serial.println("Timer set to 5 seconds");
 }
