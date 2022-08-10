@@ -7,4 +7,5 @@
   <li>Select PORT COM</li>
   <li>Verification</li>
   <li>Upload Program</li>
+  <li>Brainch main kaloborasi team is program aplikasi flutter smartlamp</li>
 </ul>
