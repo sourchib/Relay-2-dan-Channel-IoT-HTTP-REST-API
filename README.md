@@ -1,4 +1,4 @@
-# Build Use Komponen
+# Build Use program
 <ul>
   <li>Open Software Arduino IDE For Windows or Linux</li>
   <li>Put cabel adaptor USB to Device Arduino</li>
